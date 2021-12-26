@@ -349,8 +349,6 @@ qn_Object* qn_number(qn_Context *ctx, float value) {
   return o;
 }
 
-
-
 static qn_Object* buildstring(qn_Context *ctx, qn_Object *tail, int chr) {
     if(!tail || strbuf(tail)[STRBUF_SIZE - 1] == '\0') {
         qn_Object *o = qn_cons(ctx, NULL, &nil);
@@ -420,7 +418,81 @@ qn_Object* qn_cdr(qn_Context *ctx, qn_Object *obj) {
   return cdr(checktype(ctx, obj, QN_TPAIR));
 }
 
-
 static void writestr(qn_Context *ctx, qn_WriteFn fn, void *udata, const char *s) {
   while (*s) { fn(ctx, udata, *s++); }
 }
+
+void qn_write(qn_Context *ctx, qn_Object *obj, qn_WriteFn fn, void *udata, int qt) {
+    char buf[64];
+
+    switch (type(obj)) {
+        case QN_TNIL:
+            writestr(ctx, fn, udata, "nil");
+            break;
+
+        case QN_TNUMBER:
+            sprintf(buf, "%.f", number(obj));
+            writestr(ctx, fn, udata, buf);
+            break;
+
+        case QN_TPAIR:
+            fn(ctx, udata, '(');
+            for (;;) {
+                qn_write(ctx, car(obj), fn, udata, 0);
+                obj = cdr(obj);
+                if (isnil(obj)) { break; }
+                fn(ctx, udata, ' ');
+            }
+            if (!isnil(obj)) {
+                writestr(ctx, fn, udata, " . ");
+                qn_write(ctx, obj, fn, udata, 0);
+            }
+            fn(ctx, udata, ')');
+            break;
+
+        case QN_TSYMBOL:
+            qn_write(ctx, cdr(obj), fn, udata, 0);
+            break;
+        
+        case QN_TSTRING:
+            if (qt) {
+                fn(ctx, udata, '"');
+            }
+            while (!isnil(obj)) {
+                int i;
+                for (i = 0; i < STRBUF_SIZE; i++) {
+                    if (qt && strbuf(obj)[i] == '"') {
+                        fn(ctx, udata, '\\');
+                    } fn(ctx, udata, strbuf(obj)[i]);
+                }
+                obj = cdr(obj);
+            }
+            if (qt) {
+                fn(ctx, udata, '"');
+            }
+            break;
+
+        default:
+            sprintf(buf, "[%s %p]", type_name[type(obj)], (void*)obj);
+            writestr(ctx, fn, udata, buf);
+            break;
+    }
+
+}
+
+static void writefp(fe_Context *ctx, void *udata, char chr) {
+  unused(ctx);
+  fputc(chr, udata);
+}
+
+void qn_writefp(qn_Context *ctx, qn_Object *obj, FILE *fp) {
+    qn_write(ctx, obj, writefp, fp, 0);
+}
+
+typedef struct { char *p; int n; } CharPtrInt;
+
+static void writebuf(qn_Context *ctx, void *udata, char chr) {
+  unused(ctx);
+  ((CharPtrInt*)udata)->p[((CharPtrInt*)udata)->n++] = chr;
+}
+
